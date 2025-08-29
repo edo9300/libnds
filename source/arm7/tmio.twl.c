@@ -5,6 +5,7 @@
 
 #include <stdatomic.h>
 #include <nds.h>
+#include <stdio.h>
 
 
 // Using atomic load/store produces better code than volatile
@@ -181,7 +182,7 @@ static void getResponse(const Tmio *const regs, TmioPort *const port, const u16 
 //       because SD_STATUS_DATA_END fires before we even read anything from FIFO
 //       on single block read transfer.
 static void doCpuTransfer(Tmio *const regs, const u16 cmd, u8 *buf,
-                          _Atomic const u32 *const statusPtr)
+                          _Atomic const u32 *const statusPtr, tmio_callback_t callback_function)
 {
     const u32 blockLen = regs->sd_blocklen;
     u32 blockCount     = regs->sd_blockcount;
@@ -192,27 +193,35 @@ static void doCpuTransfer(Tmio *const regs, const u16 cmd, u8 *buf,
         {
             if (regs->sd_fifo32_cnt & SD_FIFO32_FULL) // RX ready.
             {
-                const u8 *const blockEnd = buf + blockLen;
-                if (!(((uintptr_t) buf) & 3))
-                {
-                    do
-                    {
-                        *((u32 *)buf) = *fifo;
-                        buf += 4;
-                    } while (buf < blockEnd);
-                }
-                else
-                {
-                    do
-                    {
-                        const u32 tmp = *fifo;
-                        buf[0] = tmp;
-                        buf[1] = tmp >> 8;
-                        buf[2] = tmp >> 16;
-                        buf[3] = tmp >> 24;
-                        buf += 4;
-                    } while (buf < blockEnd);
-                }
+				if(callback_function)
+				{
+					(*callback_function)(buf, fifo, blockLen, true);
+					buf += blockLen;
+				}
+				else
+				{
+					const u8 *const blockEnd = buf + blockLen;
+					if (!(((uintptr_t) buf) & 3))
+					{
+						do
+						{
+							*((u32 *)buf) = *fifo;
+							buf += 4;
+						} while (buf < blockEnd);
+					}
+					else
+					{
+						do
+						{
+							const u32 tmp = *fifo;
+							buf[0] = tmp;
+							buf[1] = tmp >> 8;
+							buf[2] = tmp >> 16;
+							buf[3] = tmp >> 24;
+							buf += 4;
+						} while (buf < blockEnd);
+					}
+				}
                 blockCount--;
             }
             else
@@ -229,27 +238,35 @@ static void doCpuTransfer(Tmio *const regs, const u16 cmd, u8 *buf,
         {
             if (!(regs->sd_fifo32_cnt & SD_FIFO32_NOT_EMPTY)) // TX request.
             {
-                const u8 *const blockEnd = buf + blockLen;
-                if (!(((uintptr_t) buf) & 3))
-                {
-                    do
-                    {
-                        *fifo = *((u32 *)buf);
-                        buf += 4;
-                    } while (buf < blockEnd);
-                }
-                else
-                {
-                    do
-                    {
-                        u32 tmp = buf[0];
-                        tmp |= (u32)buf[1] << 8;
-                        tmp |= (u32)buf[2] << 16;
-                        tmp |= (u32)buf[3] << 24;
-                        *fifo = tmp;
-                        buf += 4;
-                    } while (buf < blockEnd);
-                }
+				if(callback_function)
+				{
+					(*callback_function)(fifo, buf, blockLen, false);
+					buf += blockLen;
+				}
+				else
+				{
+					const u8 *const blockEnd = buf + blockLen;
+					if (!(((uintptr_t) buf) & 3))
+					{
+						do
+						{
+							*fifo = *((u32 *)buf);
+							buf += 4;
+						} while (buf < blockEnd);
+					}
+					else
+					{
+						do
+						{
+							u32 tmp = buf[0];
+							tmp |= (u32)buf[1] << 8;
+							tmp |= (u32)buf[2] << 16;
+							tmp |= (u32)buf[3] << 24;
+							*fifo = tmp;
+							buf += 4;
+						} while (buf < blockEnd);
+					}
+				}
 
                 blockCount--;
             }
@@ -297,7 +314,9 @@ u32 TMIO_sendCommand(TmioPort *const port, const u16 cmd, const u32 arg)
     {
         // If we have to transfer data do so now.
         if (buf != NULL)
-            doCpuTransfer(regs, cmd, buf, statusPtr);
+		{
+            doCpuTransfer(regs, cmd, buf, statusPtr, port->callback_function);
+		}
 
         // Wait for data end if needed.
         // On error data end still fires.
