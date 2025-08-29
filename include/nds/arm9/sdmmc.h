@@ -68,6 +68,19 @@ u32 sdmmc_GetSectors(void);
 ///     Returns true on success or false on failure.
 bool nand_ReadSectors(sec_t sector, sec_t numSectors, void *buffer);
 
+/// Reads one or more sectors from the eMMC NAND.
+///
+/// @param[in] sector
+///     The start sector.
+/// @param[in] numSectors
+///     The number of sectors to read.
+/// @param buffer
+///     The output buffer pointer.
+///
+/// @return
+///     Returns true on success or false on failure.
+bool nand_ReadSectorsCrypt(sec_t sector, sec_t numSectors, void *buffer);
+
 /// Writes one or more sectors to the eMMC NAND.
 ///
 /// @param[in] sector
@@ -80,6 +93,19 @@ bool nand_ReadSectors(sec_t sector, sec_t numSectors, void *buffer);
 /// @return
 ///     Returns true on success or false on failure.
 bool nand_WriteSectors(sec_t sector, sec_t numSectors, const void *buffer);
+
+/// Writes one or more sectors to the eMMC NAND.
+///
+/// @param[in] sector
+///     The start sector.
+/// @param[in] numSectors
+///     The number of sectors to read.
+/// @param[in] buffer
+///     The input buffer pointer.
+///
+/// @return
+///     Returns true on success or false on failure.
+bool nand_WriteSectorsCrypt(sec_t sector, sec_t numSectors, const void *buffer);
 
 // Compatibility macros.
 #define nand_GetSize nand_GetSectors
