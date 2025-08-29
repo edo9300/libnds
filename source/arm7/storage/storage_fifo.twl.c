@@ -8,11 +8,110 @@
 #include <nds/ndma.h>
 #include <nds/fifocommon.h>
 #include <nds/fifomessages.h>
+#include <string.h>
 
 #define NDMA_CHANNEL 1
 
-static u32 sdmmcReadSectors(const u8 devNum, u32 sect, u8 *buf, u32 count)
+static const uint8_t DSi_NAND_KEY_Y[16] = {
+	0x76, 0xdc, 0xb9, 0x0a, 0xd3, 0xc4, 0x4d, 0xbd,
+	0x1d, 0xdd, 0x2d, 0x20, 0x05, 0x00, 0xa0, 0xe1
+};
+
+static uint8_t nand_ctr_iv[16];
+
+
+#define KEYSEED_DSI_NAND_0      0x24ee6906
+#define KEYSEED_DSI_NAND_1      0xe65b601d
+static void generate_key(aes_keyslot_t* keyslot, const uint32_t *console_id)
 {
+	vu32* key_x = (vu32*)keyslot->key_x;
+	key_x[0] = console_id[0];
+	key_x[1] = console_id[0] ^ KEYSEED_DSI_NAND_0;
+	key_x[2] = console_id[1] ^ KEYSEED_DSI_NAND_1;
+	key_x[3] = console_id[1];
+	for(int i = 0; i < 16; ++i) {
+		keyslot->key_y[i] = DSi_NAND_KEY_Y[i];
+	}
+}
+
+static void set_ctr(uint8_t* ctr)
+{
+	for (int i = 0; i < 16; i++) REG_AES_IV[i] = ctr[i];
+}
+
+void dsi_crypt_init(const uint8_t *console_id, const uint8_t *emmc_cid)
+{
+	generate_key(&AES_KEYSLOT3, (const uint32_t *)console_id);
+	
+	REG_AES_CNT = ( AES_CNT_MODE(2) |
+					AES_WRFIFO_FLUSH |
+					AES_RDFIFO_FLUSH |
+					AES_CNT_KEY_APPLY |
+					AES_CNT_KEYSLOT(3) |
+					AES_CNT_DMA_WRITE_SIZE(2) |
+					AES_CNT_DMA_READ_SIZE(1)
+					);
+
+	swiSHA1Calc(nand_ctr_iv, emmc_cid, 16);
+}
+
+// add two 128bit, little endian values and store the result into the first
+static void u128_add(uint8_t *a, const uint8_t *b)
+{
+	uint8_t carry = 0;
+	for (int i=0;i<16;i++)
+	{
+		uint16_t sum = a[i] + b[i] + carry;
+		a[i] = sum & 0xff;
+		carry = sum >> 8;
+	}
+}
+// add two 128bit, little endian values and store the result into the first
+static void u128_add32(uint8_t *a, const uint32_t b)
+{
+	uint8_t _b[16];
+	memset(_b, 0, sizeof(_b));
+	for (int i=0;i<4;i++)
+		_b[i] = b >> (i*8);
+	u128_add(a, _b);
+}
+
+static void dsi_nand_crypt(u8* ptr, uint32_t offset, unsigned count)
+{
+	REG_AES_CNT = ( AES_CNT_MODE(2) |
+					AES_WRFIFO_FLUSH |
+					AES_RDFIFO_FLUSH |
+					AES_CNT_KEY_APPLY |
+					AES_CNT_KEYSLOT(3) |
+					AES_CNT_DMA_WRITE_SIZE(2) |
+					AES_CNT_DMA_READ_SIZE(1)
+					);
+
+	uint8_t ctr[16];
+	memcpy(ctr, nand_ctr_iv, sizeof(nand_ctr_iv));
+	u128_add32(ctr, offset);
+	set_ctr(ctr);
+	REG_AES_BLKCNT = (count << 16);
+	REG_AES_CNT |= 0x80000000;
+	
+	uint32_t* in32 = (uint32_t*)ptr;
+	uint32_t* out32 = (uint32_t*)ptr;	
+	for (unsigned i = 0; i < count; ++i)
+	{
+		for (int j = 0; j < 4; ++j) 
+			REG_AES_WRFIFO = *in32++;
+		while (((REG_AES_CNT >> 0x5) & 0x1F) < 0x4); //wait for every word to get processed
+		for (int j = 0; j < 4; ++j)
+			*out32++ = REG_AES_RDFIFO;
+	}
+}
+
+
+#define SECTOR_SIZE              0x200
+#define AES_BLOCK_SIZE          16
+static u32 sdmmcReadSectors(const u8 devNum, u32 sect, u8 *buf, u32 count, bool crypt)
+{
+	u32 result;
 #ifdef NDMA_CHANNEL
     if (!(((uintptr_t) buf) & 0x3))
     {
@@ -22,19 +121,23 @@ static u32 sdmmcReadSectors(const u8 devNum, u32 sect, u8 *buf, u32 count)
         NDMA_BDELAY(NDMA_CHANNEL) = NDMA_BDELAY_DIV_1 | NDMA_BDELAY_CYCLES(0);
         NDMA_CR(NDMA_CHANNEL) = NDMA_ENABLE | NDMA_REPEAT | NDMA_BLOCK_SCALER(4)
                                 | NDMA_SRC_FIX | NDMA_DST_INC | NDMA_START_SDMMC;
-        u32 result = SDMMC_readSectors(devNum, sect, NULL, count);
+        result = SDMMC_readSectors(devNum, sect, NULL, count);
         NDMA_CR(NDMA_CHANNEL) = 0;
-        return result;
     }
     else
 #endif
     {
-        return SDMMC_readSectors(devNum, sect, buf, count);
+        result = SDMMC_readSectors(devNum, sect, buf, count);
     }
+	if(crypt)
+		dsi_nand_crypt(buf, sect * SECTOR_SIZE / AES_BLOCK_SIZE, count * SECTOR_SIZE / AES_BLOCK_SIZE);
+	return result;
 }
 
-static u32 sdmmcWriteSectors(const u8 devNum, u32 sect, const u8 *buf, u32 count)
+static u32 sdmmcWriteSectors(const u8 devNum, u32 sect, const u8 *buf, u32 count, bool crypt)
 {
+	if(crypt)
+		dsi_nand_crypt(buf, sect * SECTOR_SIZE / AES_BLOCK_SIZE, count * SECTOR_SIZE / AES_BLOCK_SIZE);
 #ifdef NDMA_CHANNEL
     if (!(((uintptr_t) buf) & 0x3))
     {
@@ -66,19 +169,27 @@ int sdmmcMsgHandler(int bytes, void *user_data, FifoMessage *msg)
     {
         case SDMMC_SD_READ_SECTORS:
             retval = sdmmcReadSectors(SDMMC_DEV_CARD, msg->sdParams.startsector,
-                                      msg->sdParams.buffer, msg->sdParams.numsectors);
+                                      msg->sdParams.buffer, msg->sdParams.numsectors, false);
             break;
         case SDMMC_SD_WRITE_SECTORS:
             retval = sdmmcWriteSectors(SDMMC_DEV_CARD, msg->sdParams.startsector,
-                                       msg->sdParams.buffer, msg->sdParams.numsectors);
+                                       msg->sdParams.buffer, msg->sdParams.numsectors, false);
             break;
         case SDMMC_NAND_READ_SECTORS:
             retval = sdmmcReadSectors(SDMMC_DEV_eMMC, msg->sdParams.startsector,
-                                      msg->sdParams.buffer, msg->sdParams.numsectors);
+                                      msg->sdParams.buffer, msg->sdParams.numsectors, false);
             break;
         case SDMMC_NAND_WRITE_SECTORS:
             retval = sdmmcWriteSectors(SDMMC_DEV_eMMC, msg->sdParams.startsector,
-                                       msg->sdParams.buffer, msg->sdParams.numsectors);
+                                       msg->sdParams.buffer, msg->sdParams.numsectors, false);
+            break;
+        case SDMMC_NAND_READ_ENCRYPTED_SECTORS:
+            retval = sdmmcReadSectors(SDMMC_DEV_eMMC, msg->sdParams.startsector,
+                                      msg->sdParams.buffer, msg->sdParams.numsectors, true);
+            break;
+        case SDMMC_NAND_WRITE_ENCRYPTED_SECTORS:
+            retval = sdmmcWriteSectors(SDMMC_DEV_eMMC, msg->sdParams.startsector,
+                                       msg->sdParams.buffer, msg->sdParams.numsectors, true);
             break;
     }
 

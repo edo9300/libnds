@@ -113,6 +113,11 @@ bool nand_ReadSectors(sec_t sector, sec_t numSectors, void *buffer)
     return sdmmc_fifo_sectors(SDMMC_NAND_READ_SECTORS, sector, numSectors, buffer, false) == 0;
 }
 
+bool nand_ReadSectorsCrypt(sec_t sector, sec_t numSectors, void *buffer)
+{
+    return sdmmc_fifo_sectors(SDMMC_NAND_READ_ENCRYPTED_SECTORS, sector, numSectors, buffer, false) == 0;
+}
+
 bool sdmmc_ReadSectors(sec_t sector, sec_t numSectors, void *buffer)
 {
     return sdmmc_fifo_sectors(SDMMC_SD_READ_SECTORS, sector, numSectors, buffer, false) == 0;
@@ -121,6 +126,11 @@ bool sdmmc_ReadSectors(sec_t sector, sec_t numSectors, void *buffer)
 bool nand_WriteSectors(sec_t sector, sec_t numSectors, const void *buffer)
 {
     return sdmmc_fifo_sectors(SDMMC_NAND_WRITE_SECTORS, sector, numSectors, (void *) buffer, true) == 0;
+}
+
+bool nand_WriteSectorsCrypt(sec_t sector, sec_t numSectors, const void *buffer)
+{
+    return sdmmc_fifo_sectors(SDMMC_NAND_WRITE_ENCRYPTED_SECTORS, sector, numSectors, (void *) buffer, true) == 0;
 }
 
 bool sdmmc_WriteSectors(sec_t sector, sec_t numSectors, const void *buffer)
