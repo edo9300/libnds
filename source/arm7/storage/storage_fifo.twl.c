@@ -43,16 +43,16 @@ static void set_ctr(uint8_t* ctr)
 
 void dsi_crypt_init(const uint8_t *console_id, const uint8_t *emmc_cid)
 {
-	generate_key(&AES_KEYSLOT3, (const uint32_t *)console_id);
-	
-	REG_AES_CNT = ( AES_CNT_MODE(2) |
-					AES_WRFIFO_FLUSH |
-					AES_RDFIFO_FLUSH |
-					AES_CNT_KEY_APPLY |
-					AES_CNT_KEYSLOT(3) |
-					AES_CNT_DMA_WRITE_SIZE(0) |
-					AES_CNT_DMA_READ_SIZE(3)
-					);
+	// generate_key(&AES_KEYSLOT3, (const uint32_t *)console_id);
+	((volatile  uint32_t*)(AES_KEYSLOT3.key_y))[3] = 0xE1A00005;
+	// REG_AES_CNT = ( AES_CNT_MODE(2) |
+					// AES_WRFIFO_FLUSH |
+					// AES_RDFIFO_FLUSH |
+					// AES_CNT_KEY_APPLY |
+					// AES_CNT_KEYSLOT(3) |
+					// AES_CNT_DMA_WRITE_SIZE(0) |
+					// AES_CNT_DMA_READ_SIZE(3)
+					// );
 
 	swiSHA1Calc(nand_ctr_iv, emmc_cid, 16);
 }
@@ -95,41 +95,41 @@ static void setupAesRegs(uint32_t offset, unsigned count)
 	set_ctr(ctr);
 	REG_AES_BLKCNT = (count << 16);
 	REG_AES_CNT |= 0x80000000;
-	
-	// uint32_t* in32 = (uint32_t*)ptr;
-	// uint32_t* out32 = (uint32_t*)ptr;	
-	// for (unsigned i = 0; i < count; ++i)
-	// {
-		// for (int j = 0; j < 4; ++j) 
-			// REG_AES_WRFIFO = *in32++;
-		// while (((REG_AES_CNT >> 0x5) & 0x1F) < 0x4); //wait for every word to get processed
-		// for (int j = 0; j < 4; ++j)
-			// *out32++ = REG_AES_RDFIFO;
-	// }
 }
 
 extern void aaa(volatile void* dst, const volatile void* src, u32 blocklen, bool read);
 
-void aaa(volatile void* dst, const volatile void* src, u32 blocklen, bool read)
+static void cryptSectorsRead(volatile void* dst, const volatile void* src, u32 blocklen)
 {
 	volatile uint32_t* in32 = (volatile uint32_t*)src;
-	volatile uint32_t* out32 = (volatile uint32_t*)dst;
-	int incRead = !read;
-	int incWrite = read;
-	for (unsigned i = 0; i < blocklen; i += 16 * 4)
+	for (unsigned i = 0; i < blocklen / 4; ++i)
 	{
-		for (int j = 0; j < 16; ++j)
-		{
-			REG_AES_WRFIFO = *in32;
-			in32 += incRead;
+		while (((REG_AES_CNT) & 0x1F) == 16) {
+			swiHalt();
 		}
-		while (((REG_AES_CNT >> 0x5) & 0x1F) < 0x4); //wait for every word to get processed
-		for (int j = 0; j < 16; ++j)
-		{
-			*out32 = REG_AES_RDFIFO;
-			out32 += incWrite;
-		}
+		REG_AES_WRFIFO = *in32;
 	}
+}
+
+
+static void cryptSectorsWrite(volatile void* dst, const volatile void* src, u32 blocklen)
+{
+	volatile uint32_t* in32 = (volatile uint32_t*)src;
+	for (unsigned i = 0; i < blocklen / 4; ++i)
+	{
+		while (((REG_AES_CNT) & 0x1F) == 16) {
+			swiHalt();
+		}
+		REG_AES_WRFIFO = *in32++;
+	}
+}
+
+void aaa(volatile void* dst, const volatile void* src, u32 blocklen, bool read)
+{
+	if(read)
+		return cryptSectorsRead(dst, src, blocklen);
+	else
+		return cryptSectorsWrite(dst, src, blocklen);
 }
 
 #define SECTOR_SIZE              0x200
@@ -139,11 +139,18 @@ static u32 sdmmcReadSectors(const u8 devNum, u32 sect, u8 *buf, u32 count, bool 
 	u32 result;
 	if(crypt)
 	{
-		char buff[120];
-		sprintf(buff, "ARM7: reading %d sectors starting from: %d", count, sect);
-		nocashMessage(buff);
+		NDMA_SRC(NDMA_CHANNEL) = (u32) &REG_AES_RDFIFO;
+		NDMA_DEST(NDMA_CHANNEL) = (u32)buf;
+		NDMA_BLENGTH(NDMA_CHANNEL) = 16;
+		NDMA_BDELAY(NDMA_CHANNEL) = NDMA_BDELAY_DIV_1 | NDMA_BDELAY_CYCLES(0);
+		NDMA_CR(NDMA_CHANNEL) = NDMA_ENABLE | NDMA_REPEAT | NDMA_BLOCK_SCALER(4)
+								| NDMA_SRC_FIX | NDMA_DST_INC | NDMA_START_AES_OUT;
+		// char buff[120];
+		// sprintf(buff, "ARM7: reading %d sectors starting from: %d", count, sect);
+		// nocashMessage(buff);
 		setupAesRegs(sect * SECTOR_SIZE / AES_BLOCK_SIZE, count * SECTOR_SIZE / AES_BLOCK_SIZE);
 		result = SDMMC_readSectorsCrypt(devNum, sect, buf, count);
+		NDMA_CR(NDMA_CHANNEL) = 0;
 	}
 	else
 #ifdef NDMA_CHANNEL
@@ -171,11 +178,18 @@ static u32 sdmmcWriteSectors(const u8 devNum, u32 sect, const u8 *buf, u32 count
 	u32 result;
 	if(crypt)
 	{
-		char buff[120];
-		sprintf(buff, "ARM7: writing %d sectors starting from: %d", count, sect);
-		nocashMessage(buff);
+		NDMA_SRC(NDMA_CHANNEL) = (u32) &REG_AES_RDFIFO;
+		NDMA_DEST(NDMA_CHANNEL) = (u32) getTmioFifo(getTmioRegs(0));
+		NDMA_BLENGTH(NDMA_CHANNEL) = 16;
+		NDMA_BDELAY(NDMA_CHANNEL) = NDMA_BDELAY_DIV_1 | NDMA_BDELAY_CYCLES(0);
+		NDMA_CR(NDMA_CHANNEL) = NDMA_ENABLE | NDMA_REPEAT | NDMA_BLOCK_SCALER(4)
+								| NDMA_SRC_FIX | NDMA_DST_FIX | NDMA_START_AES_OUT;
+		// char buff[120];
+		// sprintf(buff, "ARM7: writing %d sectors starting from: %d", count, sect);
+		// nocashMessage(buff);
 		setupAesRegs(sect * SECTOR_SIZE / AES_BLOCK_SIZE, count * SECTOR_SIZE / AES_BLOCK_SIZE);
 		result = SDMMC_writeSectorsCrypt(devNum, sect, buf, count);
+		NDMA_CR(NDMA_CHANNEL) = 0;
 	}
 	else
 #ifdef NDMA_CHANNEL
