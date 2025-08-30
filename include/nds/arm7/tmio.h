@@ -299,6 +299,7 @@ static inline u32 TMIO_CLK2DIV(u32 clk)
 #define SD_FIFO32_FULL_IE           (1u<<11) // FIFO full IRQ enable.
 #define SD_FIFO32_NOT_EMPTY_IE      (1u<<12) // FIFO not empty IRQ enable.
 
+typedef void(*tmio_callback_t)(volatile void* dst, const volatile void* src, u32 blocklen, bool read);
 
 
 typedef struct
@@ -310,6 +311,7 @@ typedef struct
     void *buf;
     u16 blocks;
     u32 resp[4];     // Little endian, MSB first.
+	tmio_callback_t callback_function;
 } TmioPort;
 
 
@@ -404,10 +406,11 @@ static inline void TMIO_setBusWidth(TmioPort *const port, const u8 width)
 ///     The buffer pointer.
 /// @param[in] blocks
 ///     The number of blocks to transfer.
-static inline void TMIO_setBuffer(TmioPort *const port, void *buf, const u16 blocks)
+static inline void TMIO_setBuffer(TmioPort *const port, void *buf, const u16 blocks, tmio_callback_t callback_function)
 {
     port->buf    = buf;
     port->blocks = blocks;
+    port->callback_function = callback_function;
 }
 
 #ifdef __cplusplus
