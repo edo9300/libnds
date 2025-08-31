@@ -3,6 +3,7 @@
 // Copyright (C) 2023 Antonio Niño Díaz
 
 #include <stddef.h>
+#include <string.h>
 
 #include <nds.h>
 #include <nds/ndma.h>
