@@ -408,6 +408,8 @@ bool setCpuClock(bool speed);
 
 #define REG_CONSOLEID   (*(vu64 *)0x04004D00)
 
+u64 getConsoleID(void);
+
 /// Power-controlled hardware devices accessable to the ARM7.
 ///
 /// @note
