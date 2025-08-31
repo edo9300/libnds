@@ -14,72 +14,27 @@
 
 #define NDMA_CHANNEL 1
 
-static const uint8_t DSi_NAND_KEY_Y[16] = {
-	0x76, 0xdc, 0xb9, 0x0a, 0xd3, 0xc4, 0x4d, 0xbd,
-	0x1d, 0xdd, 0x2d, 0x20, 0x05, 0x00, 0xa0, 0xe1
-};
-
 static uint8_t nand_ctr_iv[16];
-
 
 #define KEYSEED_DSI_NAND_0      0x24ee6906
 #define KEYSEED_DSI_NAND_1      0xe65b601d
 static void generate_key(aes_keyslot_t* keyslot, const uint32_t *console_id)
 {
+	// FIXME: 3ds uses a different permutation of the console id
 	vu32* key_x = (vu32*)keyslot->key_x;
 	key_x[0] = console_id[0];
 	key_x[1] = console_id[0] ^ KEYSEED_DSI_NAND_0;
 	key_x[2] = console_id[1] ^ KEYSEED_DSI_NAND_1;
 	key_x[3] = console_id[1];
-	for(int i = 0; i < 16; ++i) {
-		keyslot->key_y[i] = DSi_NAND_KEY_Y[i];
-	}
-}
-
-static void set_ctr(uint8_t* ctr)
-{
-	for (int i = 0; i < 16; i++) REG_AES_IV[i] = ctr[i];
+	// "Activate" the key Y to generate the normal key
+	((volatile  uint32_t*)(keyslot->key_y))[3] = 0xE1A00005;
 }
 
 void dsi_crypt_init(const uint8_t *console_id, const uint8_t *emmc_cid)
 {
-	// generate_key(&AES_KEYSLOT3, (const uint32_t *)console_id);
-	((volatile  uint32_t*)(AES_KEYSLOT3.key_y))[3] = 0xE1A00005;
-	// REG_AES_CNT = ( AES_CNT_MODE(2) |
-					// AES_WRFIFO_FLUSH |
-					// AES_RDFIFO_FLUSH |
-					// AES_CNT_KEY_APPLY |
-					// AES_CNT_KEYSLOT(3) |
-					// AES_CNT_DMA_WRITE_SIZE(0) |
-					// AES_CNT_DMA_READ_SIZE(3)
-					// );
-
-	swiSHA1Calc(nand_ctr_iv, emmc_cid, 16);
-}
-
-// add two 128bit, little endian values and store the result into the first
-static void u128_add(uint8_t *a, const uint8_t *b)
-{
-	uint8_t carry = 0;
-	for (int i=0;i<16;i++)
-	{
-		uint16_t sum = a[i] + b[i] + carry;
-		a[i] = sum & 0xff;
-		carry = sum >> 8;
-	}
-}
-// add two 128bit, little endian values and store the result into the first
-static void u128_add32(uint8_t *a, const uint32_t b)
-{
-	uint8_t _b[16];
-	memset(_b, 0, sizeof(_b));
-	for (int i=0;i<4;i++)
-		_b[i] = b >> (i*8);
-	u128_add(a, _b);
-}
-
-static void setupAesRegs(uint32_t offset, unsigned count)
-{
+	// "Complete" the key Y in the aes engine so that the Normal Key for
+	// NAND decryption is derived in the Keyslot 3
+	generate_key(&AES_KEYSLOT3, (const uint32_t *)console_id);
 	REG_AES_CNT = ( AES_CNT_MODE(2) |
 					AES_WRFIFO_FLUSH |
 					AES_RDFIFO_FLUSH |
@@ -88,13 +43,50 @@ static void setupAesRegs(uint32_t offset, unsigned count)
 					AES_CNT_DMA_WRITE_SIZE(0) |
 					AES_CNT_DMA_READ_SIZE(3)
 					);
+	
+	// Calculate the Input Vector used for NAND decryption
+	// First 16 bytes of the SHA of the nand cid will be used
+	// as base for the input vector
+	u8 sha1Digest[20];
+	swiSHA1Calc(sha1Digest, emmc_cid, 16);
+	memcpy(nand_ctr_iv, sha1Digest, 16);
+}
 
-	uint8_t ctr[16];
-	memcpy(ctr, nand_ctr_iv, sizeof(nand_ctr_iv));
-	u128_add32(ctr, offset);
-	set_ctr(ctr);
-	REG_AES_BLKCNT = (count << 16);
-	REG_AES_CNT |= 0x80000000;
+// add a 32bit int to a 128bit little endian value
+static void u128_add32(const uint8_t *a, uint32_t b, volatile uint8_t *dest)
+{
+	uint8_t carry = 0;
+	for (int i = 0; i < 16; i++)
+	{
+		uint16_t sum = a[i] + (b & 0xff) + carry;
+		dest[i] = sum & 0xff;
+		carry = sum >> 8;
+		b >>= 8;
+	}
+}
+
+#define SECTOR_SIZE              0x200
+#define AES_BLOCK_SIZE          16
+static void setupAesRegs(uint32_t sectorNum, unsigned totalSectors)
+{
+	REG_AES_CNT = ( AES_CNT_MODE(2) |
+					AES_WRFIFO_FLUSH |
+					AES_RDFIFO_FLUSH |
+					AES_CNT_KEY_APPLY | AES_CNT_KEYSLOT(3) | // apply keyslot 3 containing the nand normal key
+					AES_CNT_DMA_WRITE_SIZE(0) | AES_CNT_DMA_READ_SIZE(3) // set both input and output expected dma size to 16 words
+					);
+	// The blkcnt register holds the number of total blocks (16 bytes) to be parsed
+	// by the current aes operation
+	uint32_t aesBlockCount = totalSectors * (SECTOR_SIZE / AES_BLOCK_SIZE);
+	// FIXME: handle transfers greater than 0xFFFF blocks (0xFFFF0 bytes, which translate to 2047 sectors)
+	REG_AES_BLKCNT = (aesBlockCount << 16);
+
+	uint32_t offset = sectorNum * (SECTOR_SIZE / AES_BLOCK_SIZE);
+	// The ctr is the base ctr calculated by the sha of the CID + (address / 16)
+	// the aes engine will take care of incrementing it automatically
+	u128_add32(nand_ctr_iv, offset, REG_AES_IV);
+
+	REG_AES_CNT |= AES_CNT_ENABLE;
 }
 
 extern void aaa(volatile void* dst, const volatile void* src, u32 numSectors, bool read);
@@ -108,9 +100,7 @@ static void cryptSectorsRead(volatile void* dst, const volatile void* inSdmcFifo
 	{
 		for (unsigned i = 0; i < numSectors / 4; ++i)
 		{
-			while (((REG_AES_CNT) & 0x1F) == 16) {
-				swiHalt();
-			}
+			while (((REG_AES_CNT) & 0x1F) == 16);
 			REG_AES_WRFIFO = *inSdmcFifo32;
 		}
 	}
@@ -123,7 +113,7 @@ static void cryptSectorsRead(volatile void* dst, const volatile void* inSdmcFifo
 			{
 				REG_AES_WRFIFO = *inSdmcFifo32;
 			}
-			while (((REG_AES_CNT >> 0x5) & 0x1F) < 16); //wait for every word to get processed
+			while (((REG_AES_CNT >> 0x5) & 0x1F) < 16);
 			for (int j = 0; j < 16; ++j)
 			{
 				*out32++ = REG_AES_RDFIFO;
@@ -140,7 +130,7 @@ static void cryptSectorsRead(volatile void* dst, const volatile void* inSdmcFifo
 			{
 				REG_AES_WRFIFO = *inSdmcFifo32;
 			}
-			while (((REG_AES_CNT >> 0x5) & 0x1F) < 16); //wait for every word to get processed
+			while (((REG_AES_CNT >> 0x5) & 0x1F) < 16);
 			for (int j = 0; j < 16; ++j)
 			{
 				const uint32_t tmp = REG_AES_RDFIFO;
@@ -163,9 +153,7 @@ static void cryptSectorsWrite(volatile void* outSdmcFifo, const volatile void* s
 		volatile uint32_t* in32 = (volatile uint32_t*)src;
 		for (unsigned i = 0; i < numSectors / 4; ++i)
 		{
-			while (((REG_AES_CNT) & 0x1F) == 16) {
-				swiHalt();
-			}
+			while (((REG_AES_CNT) & 0x1F) == 16);
 			REG_AES_WRFIFO = *in32++;
 		}
 	}
@@ -178,9 +166,7 @@ static void cryptSectorsWrite(volatile void* outSdmcFifo, const volatile void* s
 			tmp |= *in8++ << 8;
 			tmp |= *in8++ << 16;
 			tmp |= *in8++ << 24;
-			while (((REG_AES_CNT) & 0x1F) == 16) {
-				swiHalt();
-			}
+			while (((REG_AES_CNT) & 0x1F) == 16);
 			REG_AES_WRFIFO = tmp;
 		}
 	}
@@ -195,7 +181,7 @@ static void cryptSectorsWrite(volatile void* outSdmcFifo, const volatile void* s
 			{
 				REG_AES_WRFIFO = *in32++;
 			}
-			while (((REG_AES_CNT >> 0x5) & 0x1F) < 16); //wait for every word to get processed
+			while (((REG_AES_CNT >> 0x5) & 0x1F) < 16);
 			for (int j = 0; j < 16; ++j)
 			{
 				*outSdmcFifo32 = REG_AES_RDFIFO;
@@ -215,7 +201,7 @@ static void cryptSectorsWrite(volatile void* outSdmcFifo, const volatile void* s
 				tmp |= *in8++ << 24;
 				REG_AES_WRFIFO = tmp;
 			}
-			while (((REG_AES_CNT >> 0x5) & 0x1F) < 16); //wait for every word to get processed
+			while (((REG_AES_CNT >> 0x5) & 0x1F) < 16);
 			for (int j = 0; j < 16; ++j)
 			{
 				*outSdmcFifo32 = REG_AES_RDFIFO;
@@ -233,8 +219,6 @@ void aaa(volatile void* dst, const volatile void* src, u32 numSectors, bool read
 		return cryptSectorsWrite(dst, src, numSectors);
 }
 
-#define SECTOR_SIZE              0x200
-#define AES_BLOCK_SIZE          16
 static u32 sdmmcReadSectors(const u8 devNum, u32 sect, u8 *buf, u32 count, bool crypt)
 {
 	u32 result;
@@ -252,7 +236,7 @@ static u32 sdmmcReadSectors(const u8 devNum, u32 sect, u8 *buf, u32 count, bool 
 									| NDMA_SRC_FIX | NDMA_DST_INC | NDMA_START_AES_OUT;
 		}
 #endif
-		setupAesRegs(sect * SECTOR_SIZE / AES_BLOCK_SIZE, count * SECTOR_SIZE / AES_BLOCK_SIZE);
+		setupAesRegs(sect, count);
 		result = SDMMC_readSectorsCrypt(devNum, sect, buf, count);
 #ifdef NDMA_CHANNEL
 		if(word_aligned)
@@ -295,7 +279,7 @@ static u32 sdmmcWriteSectors(const u8 devNum, u32 sect, const u8 *buf, u32 count
 		NDMA_CR(NDMA_CHANNEL) = NDMA_ENABLE | NDMA_REPEAT | NDMA_BLOCK_SCALER(4)
 								| NDMA_SRC_FIX | NDMA_DST_FIX | NDMA_START_AES_OUT;
 #endif
-		setupAesRegs(sect * SECTOR_SIZE / AES_BLOCK_SIZE, count * SECTOR_SIZE / AES_BLOCK_SIZE);
+		setupAesRegs(sect, count);
 		result = SDMMC_writeSectorsCrypt(devNum, sect, buf, count);
 #ifdef NDMA_CHANNEL
 		NDMA_CR(NDMA_CHANNEL) = 0;
