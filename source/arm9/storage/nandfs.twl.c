@@ -4,7 +4,7 @@
 
 bool nandfs_Startup(void)
 {
-    if (!nand_Startup())
+    if (!nand_Startup() || !nand_SetupCrypt())
         return false;
 
     return true;

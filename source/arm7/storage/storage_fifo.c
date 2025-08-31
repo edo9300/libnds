@@ -115,6 +115,7 @@ void storageValueHandler(u32 value, void *user_data)
         case SDMMC_NAND_STOP:
         case SDMMC_NAND_STATUS:
         case SDMMC_NAND_SIZE:
+        case SDMMC_NAND_CRYPT_SETUP:
             if (isDSiMode())
                 result = sdmmcValueHandler(value, user_data);
             break;

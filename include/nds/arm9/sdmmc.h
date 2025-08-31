@@ -29,6 +29,12 @@ extern "C" {
 ///     Returns true on success or false on failure.
 bool nand_Startup(void);
 
+/// Initialize the aes keys to allow reading encrypted eMMC NAND.
+///
+/// @return
+///     Returns true on success or false on failure.
+bool nand_SetupCrypt(void);
+
 /// Returns the SDMMC_STATUS bits of the eMMC NAND.
 ///
 /// @return

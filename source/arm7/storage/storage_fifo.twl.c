@@ -19,23 +19,26 @@ static uint8_t nand_ctr_iv[16];
 
 #define KEYSEED_DSI_NAND_0      0x24ee6906
 #define KEYSEED_DSI_NAND_1      0xe65b601d
-static void generate_key(aes_keyslot_t* keyslot, const uint32_t *console_id)
+static void generate_key(aes_keyslot_t* keyslot, uint64_t console_id)
 {
-	// FIXME: 3ds uses a different permutation of the console id
-	vu32* key_x = (vu32*)keyslot->key_x;
-	key_x[0] = console_id[0];
-	key_x[1] = console_id[0] ^ KEYSEED_DSI_NAND_0;
-	key_x[2] = console_id[1] ^ KEYSEED_DSI_NAND_1;
-	key_x[3] = console_id[1];
-	// "Activate" the key Y to generate the normal key
-	((volatile  uint32_t*)(keyslot->key_y))[3] = 0xE1A00005;
+    // FIXME: 3ds uses a different permutation of the console id
+    vu32* key_x = (vu32*)keyslot->key_x;
+    uint32_t lower = (uint32_t)(console_id & 0xFFFFFFFF);
+    uint32_t upper = (uint32_t)(console_id >> 32);
+    key_x[0] = lower;
+    key_x[1] = lower ^ KEYSEED_DSI_NAND_0;
+    key_x[2] = upper ^ KEYSEED_DSI_NAND_1;
+    key_x[3] = upper;
+    // "Activate" the key Y to generate the normal key
+    ((volatile  uint32_t*)(keyslot->key_y))[3] = 0xE1A00005;
 }
 
-void dsi_crypt_init(const uint8_t *console_id, const uint8_t *emmc_cid)
+int dsi_crypt_init()
 {
 	// "Complete" the key Y in the aes engine so that the Normal Key for
 	// NAND decryption is derived in the Keyslot 3
-	generate_key(&AES_KEYSLOT3, (const uint32_t *)console_id);
+	uint64_t consoleId = getConsoleID();
+	generate_key(&AES_KEYSLOT3, consoleId);
 	REG_AES_CNT = ( AES_CNT_MODE(2) |
 					AES_WRFIFO_FLUSH |
 					AES_RDFIFO_FLUSH |
@@ -48,9 +51,12 @@ void dsi_crypt_init(const uint8_t *console_id, const uint8_t *emmc_cid)
 	// Calculate the Input Vector used for NAND decryption
 	// First 16 bytes of the SHA of the nand cid will be used
 	// as base for the input vector
+	SDMMC_getCidRaw(SDMMC_DEV_eMMC, (vu32*)REG_CID);
 	u8 sha1Digest[20];
-	swiSHA1Calc(sha1Digest, emmc_cid, 16);
+	swiSHA1Calc(sha1Digest, (vu32*)REG_CID, 16);
 	memcpy(nand_ctr_iv, sha1Digest, 16);
+	
+	return 0;
 }
 
 // add a 32bit int to a 128bit little endian value
@@ -382,6 +388,10 @@ int sdmmcValueHandler(u32 value, void *user_data)
 
         case SDMMC_NAND_SIZE:
             result = SDMMC_getSectors(SDMMC_DEV_eMMC);
+            break;
+
+        case SDMMC_NAND_CRYPT_SETUP:
+            result = dsi_crypt_init();
             break;
     }
 

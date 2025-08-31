@@ -95,6 +95,11 @@ bool nand_Startup(void)
     return sdmmc_fifo_value(SDMMC_NAND_START) == 0;
 }
 
+bool nand_SetupCrypt(void)
+{
+    return sdmmc_fifo_value(SDMMC_NAND_CRYPT_SETUP) == 0;
+}
+
 bool sdmmc_Startup(void)
 {
     if (sdmmc_fifo_value(SDMMC_SD_STATUS) & SDMMC_STATUS_NODISK)
