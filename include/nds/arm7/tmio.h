@@ -311,7 +311,7 @@ typedef struct
     void *buf;
     u16 blocks;
     u32 resp[4];     // Little endian, MSB first.
-	tmio_callback_t callback_function;
+    tmio_callback_t callback_function;
 } TmioPort;
 
 

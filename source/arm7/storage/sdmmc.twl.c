@@ -651,18 +651,18 @@ u32 SDMMC_getCid(const u8 devNum, u32 cidOut[4])
 
 u32 SDMMC_getCidRaw(const u8 devNum, u32 cidOut[4])
 {
-	u32 cidFixed[4];
-	u32 err = SDMMC_getCid(devNum, cidFixed);
+    u32 cidFixed[4];
+    u32 err = SDMMC_getCid(devNum, cidFixed);
     if (err != SDMMC_ERR_NONE)
-		return err;
+        return err;
 
-	if (cidOut != NULL)
-	{
-		cidOut[0] = (cidFixed[3] >> 8) | (cidFixed[2] << 24);
-		cidOut[1] = (cidFixed[2] >> 8) | (cidFixed[1] << 24);
-		cidOut[2] = (cidFixed[1] >> 8) | (cidFixed[0] << 24);
-		cidOut[3] = (cidFixed[0] >> 8);
-	}
+    if (cidOut != NULL)
+    {
+        cidOut[0] = (cidFixed[3] >> 8) | (cidFixed[2] << 24);
+        cidOut[1] = (cidFixed[2] >> 8) | (cidFixed[1] << 24);
+        cidOut[2] = (cidFixed[1] >> 8) | (cidFixed[0] << 24);
+        cidOut[3] = (cidFixed[0] >> 8);
+    }
 
     return SDMMC_ERR_NONE;
 }
@@ -752,12 +752,12 @@ static u32 readSectors(const u8 devNum, u32 sect, void *const buf, const u16 cou
 
 u32 SDMMC_readSectors(const u8 devNum, u32 sect, void *const buf, const u16 count)
 {
-	return readSectors(devNum, sect, buf, count, NULL);
+    return readSectors(devNum, sect, buf, count, NULL);
 }
 
 u32 SDMMC_readSectorsCrypt(const u8 devNum, u32 sect, void *const buf, const u16 count)
 {
-	return readSectors(devNum, sect, buf, count, aaa);
+    return readSectors(devNum, sect, buf, count, aaa);
 }
 
 // Note: On multi-block write to the last 2 sectors there are no errors reported by the controller
@@ -805,12 +805,12 @@ static u32 writeSectors(const u8 devNum, u32 sect, const void *const buf, const 
 
 u32 SDMMC_writeSectors(const u8 devNum, u32 sect, const void *const buf, const u16 count)
 {
-	return writeSectors(devNum, sect, buf, count, NULL);
+    return writeSectors(devNum, sect, buf, count, NULL);
 }
 
 u32 SDMMC_writeSectorsCrypt(const u8 devNum, u32 sect, const void *const buf, const u16 count)
 {
-	return writeSectors(devNum, sect, buf, count, aaa);
+    return writeSectors(devNum, sect, buf, count, aaa);
 }
 
 u32 SDMMC_sendCommand(const u8 devNum, MmcCommand *const mmcCmd)
