@@ -338,8 +338,10 @@ bool fatInit(int32_t cache_size_pages, bool set_as_default_device)
         }
 
         result = f_mount(&fs_info[2], nand_drive, 1);
-        errno = fatfs_error_to_posix(result);
-        perror("NAND mount");
+        if((result != FR_OK))
+        {
+            errno = fatfs_error_to_posix(result);
+        }
     }
     else
     {
