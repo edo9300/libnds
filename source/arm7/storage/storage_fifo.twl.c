@@ -21,13 +21,23 @@ static uint8_t nand_ctr_iv[16];
 #define KEYSEED_DSI_NAND_1      0xe65b601d
 static void generate_key(aes_keyslot_t* keyslot, uint64_t console_id)
 {
-    // FIXME: 3ds uses a different permutation of the console id
     vu32* key_x = (vu32*)keyslot->key_x;
     uint32_t lower = (uint32_t)(console_id & 0xFFFFFFFF);
     uint32_t upper = (uint32_t)(console_id >> 32);
     key_x[0] = lower;
-    key_x[1] = lower ^ KEYSEED_DSI_NAND_0;
-    key_x[2] = upper ^ KEYSEED_DSI_NAND_1;
+    // this bit is only set on 3ds consoles
+    const bool is3ds = (lower & 0x80000000) != 0;
+    if(lower & 0x80000000)
+    {
+		static const char NINTENDO[] = {'N','I','N','T','E','N','D','O'};
+        key_x[1] = ((vu32*)NINTENDO)[0];
+        key_x[2] = ((vu32*)NINTENDO)[1];
+    }
+    else
+    {
+        key_x[1] = lower ^ KEYSEED_DSI_NAND_0;
+        key_x[2] = upper ^ KEYSEED_DSI_NAND_1;
+    }
     key_x[3] = upper;
     // "Activate" the key Y to generate the normal key
     ((volatile  uint32_t*)(keyslot->key_y))[3] = 0xE1A00005;
