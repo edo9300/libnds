@@ -14,8 +14,11 @@
 #include <stdio.h>
 
 #define NDMA_CHANNEL 1
+#define SECTOR_CAP 2047
 
 static u8 nand_ctr_iv[16];
+sec_t remainingSectors;
+sec_t startingSector;
 
 #define KEYSEED_DSI_NAND_0      0x24ee6906
 #define KEYSEED_DSI_NAND_1      0xe65b601d
@@ -84,8 +87,9 @@ static void u128_add32(const u8 *a, u32 b, vu8 *dest)
 
 #define SECTOR_SIZE              0x200
 #define AES_BLOCK_SIZE          16
-static void setupAesRegs(u32 sectorNum, unsigned totalSectors)
+static sec_t setupAesRegs(u32 sectorNum, sec_t totalSectors)
 {
+    char buff[120];
     REG_AES_CNT = ( AES_CNT_MODE(2) |
                     AES_WRFIFO_FLUSH |
                     AES_RDFIFO_FLUSH |
@@ -94,7 +98,12 @@ static void setupAesRegs(u32 sectorNum, unsigned totalSectors)
                     );
     // The blkcnt register holds the number of total blocks (16 bytes) to be parsed
     // by the current aes operation
-    u32 aesBlockCount = totalSectors * (SECTOR_SIZE / AES_BLOCK_SIZE);
+    sec_t toReadSectors = totalSectors;
+    if(toReadSectors > SECTOR_CAP)
+    {
+        toReadSectors = SECTOR_CAP;
+    }
+    u32 aesBlockCount = toReadSectors * (SECTOR_SIZE / AES_BLOCK_SIZE);
     // FIXME: handle transfers greater than 0xFFFF blocks (0xFFFF0 bytes, which translate to 2047 sectors)
     REG_AES_BLKCNT = (aesBlockCount << 16);
 
@@ -104,18 +113,20 @@ static void setupAesRegs(u32 sectorNum, unsigned totalSectors)
     u128_add32(nand_ctr_iv, offset, REG_AES_IV);
 
     REG_AES_CNT |= AES_CNT_ENABLE;
+
+    return  totalSectors - toReadSectors;
 }
 
-extern void aaa(volatile void* dst, const volatile void* src, u32 numSectors, bool read);
+extern void aaa(volatile void* dst, const volatile void* src, u32 numBytes, bool read);
 
-static void cryptSectorsRead(volatile void* dst, const volatile void* inSdmcFifo, u32 numSectors)
+static void cryptSectorsRead(volatile void* dst, const volatile void* inSdmcFifo, u32 numBytes)
 {
     const bool word_aligned = !(((uintptr_t) dst) & 0x3);
     vu32* inSdmcFifo32 = (vu32*)inSdmcFifo;
     if(word_aligned)
 #ifdef NDMA_CHANNEL
     {
-        for (unsigned i = 0; i < numSectors / 4; ++i)
+        for (unsigned i = 0; i < numBytes / 4; ++i)
         {
             while (((REG_AES_CNT) & 0x1F) == 16);
             REG_AES_WRFIFO = *inSdmcFifo32;
@@ -124,7 +135,7 @@ static void cryptSectorsRead(volatile void* dst, const volatile void* inSdmcFifo
 #else
     {
         vu32* out32 = (vu32*)dst;
-        for (unsigned i = 0; i < numSectors / (4 * 16); ++i)
+        for (unsigned i = 0; i < numBytes / (4 * 16); ++i)
         {
             for (int j = 0; j < 16; ++j)
             {
@@ -141,7 +152,7 @@ static void cryptSectorsRead(volatile void* dst, const volatile void* inSdmcFifo
     else
     {
         vu8* out8 = (vu8*)dst;
-        for (unsigned i = 0; i < numSectors / (4 * 16); ++i)
+        for (unsigned i = 0; i < numBytes / (4 * 16); ++i)
         {
             for (int j = 0; j < 16; ++j)
             {
@@ -161,14 +172,14 @@ static void cryptSectorsRead(volatile void* dst, const volatile void* inSdmcFifo
 }
 
 
-static void cryptSectorsWrite(volatile void* outSdmcFifo, const volatile void* src, u32 numSectors)
+static void cryptSectorsWrite(volatile void* outSdmcFifo, const volatile void* src, u32 numBytes)
 {
 #ifdef NDMA_CHANNEL
     (void)outSdmcFifo;
     if (!(((uintptr_t) src) & 0x3))
     {
         vu32* in32 = (vu32*)src;
-        for (unsigned i = 0; i < numSectors / 4; ++i)
+        for (unsigned i = 0; i < numBytes / 4; ++i)
         {
             while (((REG_AES_CNT) & 0x1F) == 16);
             REG_AES_WRFIFO = *in32++;
@@ -177,7 +188,7 @@ static void cryptSectorsWrite(volatile void* outSdmcFifo, const volatile void* s
     else
     {
         vu8* in8 = (vu8*)src;
-        for (unsigned i = 0; i < numSectors / 4; ++i)
+        for (unsigned i = 0; i < numBytes / 4; ++i)
         {
             u32 tmp = *in8++;
             tmp |= *in8++ << 8;
@@ -192,7 +203,7 @@ static void cryptSectorsWrite(volatile void* outSdmcFifo, const volatile void* s
     if (!(((uintptr_t) src) & 0x3))
     {
         vu32* in32 = (vu32*)src;
-        for (unsigned i = 0; i < numSectors / (4 * 16); ++i)
+        for (unsigned i = 0; i < numBytes / (4 * 16); ++i)
         {
             for (int j = 0; j < 16; ++j)
             {
@@ -208,7 +219,7 @@ static void cryptSectorsWrite(volatile void* outSdmcFifo, const volatile void* s
     else
     {
         vu8* in8 = (vu8*)src;
-        for (unsigned i = 0; i < numSectors / (4 * 16); ++i)
+        for (unsigned i = 0; i < numBytes / (4 * 16); ++i)
         {
             for (int j = 0; j < 16; ++j)
             {
@@ -228,19 +239,38 @@ static void cryptSectorsWrite(volatile void* outSdmcFifo, const volatile void* s
 #endif
 }
 
-void aaa(volatile void* dst, const volatile void* src, u32 numSectors, bool read)
+void aaa(volatile void* dst, const volatile void* src, u32 numBytes, bool read)
 {
     if(read)
-        return cryptSectorsRead(dst, src, numSectors);
+        cryptSectorsRead(dst, src, numBytes);
     else
-        return cryptSectorsWrite(dst, src, numSectors);
+        cryptSectorsWrite(dst, src, numBytes);
+    if(remainingSectors != 0)
+    {
+        u32 cnt = REG_AES_CNT;
+        if((cnt & AES_CNT_ENABLE) == 0)
+        {
+            startingSector += SECTOR_CAP;
+            remainingSectors = setupAesRegs(startingSector, remainingSectors);
+#ifdef NDMA_CHANNEL
+            if(read)
+            {
+                const bool word_aligned = !(((uintptr_t)dst) & 0x3);
+                if(!word_aligned)
+                    return;
+                NDMA_DEST(NDMA_CHANNEL) = ((u32)dst) + 512;
+            }
+            NDMA_CR(NDMA_CHANNEL) |= NDMA_ENABLE;
+#endif
+        }
+    }
 }
 
 static u32 sdmmcReadSectors(const u8 devNum, u32 sect, u8 *buf, u32 count, bool crypt)
 {
     char buff[120];
     sprintf(buff, "ARM7: reading %d sectors starting from: %d\n", count, sect);
-    nocashMessage(buff);
+    // nocashMessage(buff);
     u32 result;
     const bool word_aligned = !(((uintptr_t) buf) & 0x3);
     if(crypt)
@@ -256,7 +286,8 @@ static u32 sdmmcReadSectors(const u8 devNum, u32 sect, u8 *buf, u32 count, bool 
                                     | NDMA_SRC_FIX | NDMA_DST_INC | NDMA_START_AES_OUT;
         }
 #endif
-        setupAesRegs(sect, count);
+        startingSector = sect;
+        remainingSectors = setupAesRegs(sect, count);
         result = SDMMC_readSectorsCrypt(devNum, sect, buf, count);
 #ifdef NDMA_CHANNEL
         if(word_aligned)
@@ -302,7 +333,8 @@ static u32 sdmmcWriteSectors(const u8 devNum, u32 sect, const u8 *buf, u32 count
         NDMA_CR(NDMA_CHANNEL) = NDMA_ENABLE | NDMA_REPEAT | NDMA_BLOCK_SCALER(4)
                                 | NDMA_SRC_FIX | NDMA_DST_FIX | NDMA_START_AES_OUT;
 #endif
-        setupAesRegs(sect, count);
+        startingSector = sect;
+        remainingSectors = setupAesRegs(sect, count);
         result = SDMMC_writeSectorsCrypt(devNum, sect, buf, count);
 #ifdef NDMA_CHANNEL
         NDMA_CR(NDMA_CHANNEL) = 0;
