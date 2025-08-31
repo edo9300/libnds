@@ -15,15 +15,15 @@
 
 #define NDMA_CHANNEL 1
 
-static uint8_t nand_ctr_iv[16];
+static u8 nand_ctr_iv[16];
 
 #define KEYSEED_DSI_NAND_0      0x24ee6906
 #define KEYSEED_DSI_NAND_1      0xe65b601d
-static void generate_key(aes_keyslot_t* keyslot, uint64_t console_id)
+static void generate_key(aes_keyslot_t* keyslot, u64 console_id)
 {
     vu32* key_x = (vu32*)keyslot->key_x;
-    uint32_t lower = (uint32_t)(console_id & 0xFFFFFFFF);
-    uint32_t upper = (uint32_t)(console_id >> 32);
+    u32 lower = (u32)(console_id & 0xFFFFFFFF);
+    u32 upper = (u32)(console_id >> 32);
     key_x[0] = lower;
     // this bit is only set on 3ds consoles
     const bool is3ds = (lower & 0x80000000) != 0;
@@ -40,14 +40,14 @@ static void generate_key(aes_keyslot_t* keyslot, uint64_t console_id)
     }
     key_x[3] = upper;
     // "Activate" the key Y to generate the normal key
-    ((volatile  uint32_t*)(keyslot->key_y))[3] = 0xE1A00005;
+    ((volatile  u32*)(keyslot->key_y))[3] = 0xE1A00005;
 }
 
 int dsi_crypt_init()
 {
     // "Complete" the key Y in the aes engine so that the Normal Key for
     // NAND decryption is derived in the Keyslot 3
-    uint64_t consoleId = getConsoleID();
+    u64 consoleId = getConsoleID();
     generate_key(&AES_KEYSLOT3, consoleId);
     REG_AES_CNT = ( AES_CNT_MODE(2) |
                     AES_WRFIFO_FLUSH |
@@ -70,12 +70,12 @@ int dsi_crypt_init()
 }
 
 // add a 32bit int to a 128bit little endian value
-static void u128_add32(const uint8_t *a, uint32_t b, volatile uint8_t *dest)
+static void u128_add32(const u8 *a, u32 b, vu8 *dest)
 {
-    uint8_t carry = 0;
+    u8 carry = 0;
     for (int i = 0; i < 16; i++)
     {
-        uint16_t sum = a[i] + (b & 0xff) + carry;
+        u16 sum = a[i] + (b & 0xff) + carry;
         dest[i] = sum & 0xff;
         carry = sum >> 8;
         b >>= 8;
@@ -84,7 +84,7 @@ static void u128_add32(const uint8_t *a, uint32_t b, volatile uint8_t *dest)
 
 #define SECTOR_SIZE              0x200
 #define AES_BLOCK_SIZE          16
-static void setupAesRegs(uint32_t sectorNum, unsigned totalSectors)
+static void setupAesRegs(u32 sectorNum, unsigned totalSectors)
 {
     REG_AES_CNT = ( AES_CNT_MODE(2) |
                     AES_WRFIFO_FLUSH |
@@ -94,11 +94,11 @@ static void setupAesRegs(uint32_t sectorNum, unsigned totalSectors)
                     );
     // The blkcnt register holds the number of total blocks (16 bytes) to be parsed
     // by the current aes operation
-    uint32_t aesBlockCount = totalSectors * (SECTOR_SIZE / AES_BLOCK_SIZE);
+    u32 aesBlockCount = totalSectors * (SECTOR_SIZE / AES_BLOCK_SIZE);
     // FIXME: handle transfers greater than 0xFFFF blocks (0xFFFF0 bytes, which translate to 2047 sectors)
     REG_AES_BLKCNT = (aesBlockCount << 16);
 
-    uint32_t offset = sectorNum * (SECTOR_SIZE / AES_BLOCK_SIZE);
+    u32 offset = sectorNum * (SECTOR_SIZE / AES_BLOCK_SIZE);
     // The ctr is the base ctr calculated by the sha of the CID + (address / 16)
     // the aes engine will take care of incrementing it automatically
     u128_add32(nand_ctr_iv, offset, REG_AES_IV);
@@ -111,7 +111,7 @@ extern void aaa(volatile void* dst, const volatile void* src, u32 numSectors, bo
 static void cryptSectorsRead(volatile void* dst, const volatile void* inSdmcFifo, u32 numSectors)
 {
     const bool word_aligned = !(((uintptr_t) dst) & 0x3);
-    volatile uint32_t* inSdmcFifo32 = (volatile uint32_t*)inSdmcFifo;
+    vu32* inSdmcFifo32 = (vu32*)inSdmcFifo;
     if(word_aligned)
 #ifdef NDMA_CHANNEL
     {
@@ -123,7 +123,7 @@ static void cryptSectorsRead(volatile void* dst, const volatile void* inSdmcFifo
     }
 #else
     {
-        volatile uint32_t* out32 = (volatile uint32_t*)dst;
+        vu32* out32 = (vu32*)dst;
         for (unsigned i = 0; i < numSectors / (4 * 16); ++i)
         {
             for (int j = 0; j < 16; ++j)
@@ -140,7 +140,7 @@ static void cryptSectorsRead(volatile void* dst, const volatile void* inSdmcFifo
 #endif
     else
     {
-        volatile uint8_t* out8 = (volatile uint8_t*)dst;
+        vu8* out8 = (vu8*)dst;
         for (unsigned i = 0; i < numSectors / (4 * 16); ++i)
         {
             for (int j = 0; j < 16; ++j)
@@ -150,7 +150,7 @@ static void cryptSectorsRead(volatile void* dst, const volatile void* inSdmcFifo
             while (((REG_AES_CNT >> 0x5) & 0x1F) < 16);
             for (int j = 0; j < 16; ++j)
             {
-                const uint32_t tmp = REG_AES_RDFIFO;
+                const u32 tmp = REG_AES_RDFIFO;
                 *out8++ = tmp;
                 *out8++ = tmp >> 8;
                 *out8++ = tmp >> 16;
@@ -167,7 +167,7 @@ static void cryptSectorsWrite(volatile void* outSdmcFifo, const volatile void* s
     (void)outSdmcFifo;
     if (!(((uintptr_t) src) & 0x3))
     {
-        volatile uint32_t* in32 = (volatile uint32_t*)src;
+        vu32* in32 = (vu32*)src;
         for (unsigned i = 0; i < numSectors / 4; ++i)
         {
             while (((REG_AES_CNT) & 0x1F) == 16);
@@ -176,10 +176,10 @@ static void cryptSectorsWrite(volatile void* outSdmcFifo, const volatile void* s
     }
     else
     {
-        volatile uint8_t* in8 = (volatile uint8_t*)src;
+        vu8* in8 = (vu8*)src;
         for (unsigned i = 0; i < numSectors / 4; ++i)
         {
-            uint32_t tmp = *in8++;
+            u32 tmp = *in8++;
             tmp |= *in8++ << 8;
             tmp |= *in8++ << 16;
             tmp |= *in8++ << 24;
@@ -188,10 +188,10 @@ static void cryptSectorsWrite(volatile void* outSdmcFifo, const volatile void* s
         }
     }
 #else
-    volatile uint32_t* outSdmcFifo32 = (volatile uint32_t*)outSdmcFifo;
+    vu32* outSdmcFifo32 = (vu32*)outSdmcFifo;
     if (!(((uintptr_t) src) & 0x3))
     {
-        volatile uint32_t* in32 = (volatile uint32_t*)src;
+        vu32* in32 = (vu32*)src;
         for (unsigned i = 0; i < numSectors / (4 * 16); ++i)
         {
             for (int j = 0; j < 16; ++j)
@@ -207,12 +207,12 @@ static void cryptSectorsWrite(volatile void* outSdmcFifo, const volatile void* s
     }
     else
     {
-        volatile uint8_t* in8 = (volatile uint8_t*)src;
+        vu8* in8 = (vu8*)src;
         for (unsigned i = 0; i < numSectors / (4 * 16); ++i)
         {
             for (int j = 0; j < 16; ++j)
             {
-                uint32_t tmp = *in8++;
+                u32 tmp = *in8++;
                 tmp |= *in8++ << 8;
                 tmp |= *in8++ << 16;
                 tmp |= *in8++ << 24;
