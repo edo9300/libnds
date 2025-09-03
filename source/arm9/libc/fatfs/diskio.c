@@ -80,21 +80,28 @@ DSTATUS disk_status(BYTE pdrv)
 
     switch (pdrv)
     {
-        case DEV_SD:
         case DEV_NAND:
+            result = nand_GetDiskStatus();
+            io = get_io_dsinand();
+            break;
+        case DEV_SD:
             result = sdmmc_GetDiskStatus();
+            io = get_io_dsisd();
+            break;
             // Fall through
         case DEV_DLDI:
-            io = pdrv == DEV_SD ? get_io_dsisd() : dldiGetInternal();
-            result |= (io->features & FEATURE_MEDIUM_CANREAD)
-                ? ((io->features & FEATURE_MEDIUM_CANWRITE) ? 0 : STA_PROTECT)
-                : STA_NODISK;
-            result |= fs_initialized[pdrv] ? 0 : STA_NOINIT;
-            break;
-        default:
-            result = STA_NOINIT;
+            io = dldiGetInternal();
             break;
     }
+    
+    if(!io)
+        return STA_NOINIT;
+
+    result |= (io->features & FEATURE_MEDIUM_CANREAD)
+        ? ((io->features & FEATURE_MEDIUM_CANWRITE) ? 0 : STA_PROTECT)
+        : STA_NODISK;
+
+    result |= fs_initialized[pdrv] ? 0 : STA_NOINIT;
 
     return result;
 }
