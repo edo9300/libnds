@@ -68,6 +68,24 @@ static const DISC_INTERFACE *fs_io[FF_VOLUMES];
 #error "This file assumes that the sector size is always the same".
 #endif
 
+static DISC_INTERFACE *get_disk_interface(BYTE pdrv)
+{
+    const DISC_INTERFACE *io = NULL;
+    switch (pdrv)
+    {
+        case DEV_NAND:
+            io = get_io_dsinand();
+            break;
+        case DEV_SD:
+            io = get_io_dsisd();
+            break;
+        case DEV_DLDI:
+            io = dldiGetInternal();
+            break;
+    }
+    return io;
+}
+
 //-----------------------------------------------------------------------
 // Get Drive Status
 //-----------------------------------------------------------------------
@@ -75,28 +93,22 @@ static const DISC_INTERFACE *fs_io[FF_VOLUMES];
 // pdrv: Physical drive nmuber to identify the drive
 DSTATUS disk_status(BYTE pdrv)
 {
-    const DISC_INTERFACE *io;
+    const DISC_INTERFACE *io = get_disk_interface(pdrv);
+    if(!io)
+        return STA_NOINIT;
+    
     DSTATUS result = 0;
 
     switch (pdrv)
     {
         case DEV_NAND:
             result = nand_GetDiskStatus();
-            io = get_io_dsinand();
             break;
         case DEV_SD:
             result = sdmmc_GetDiskStatus();
-            io = get_io_dsisd();
-            break;
-            // Fall through
-        case DEV_DLDI:
-            io = dldiGetInternal();
             break;
     }
     
-    if(!io)
-        return STA_NOINIT;
-
     result |= (io->features & FEATURE_MEDIUM_CANREAD)
         ? ((io->features & FEATURE_MEDIUM_CANWRITE) ? 0 : STA_PROTECT)
         : STA_NODISK;
@@ -117,39 +129,24 @@ DSTATUS disk_initialize(BYTE pdrv)
     if (fs_initialized[pdrv])
         return 0;
 
-    switch (pdrv)
-    {
-        case DEV_DLDI:
-        case DEV_SD:
-        case DEV_NAND:
-        {
-            const DISC_INTERFACE *io;
+    const DISC_INTERFACE *io = get_disk_interface(pdrv);
 
-            if (pdrv == DEV_DLDI)
-                io = dldiGetInternal();
-            else if (pdrv == DEV_SD)
-                io = get_io_dsisd();
-            else if (pdrv == DEV_NAND)
-                io = get_io_dsinand();
-            else
-                return STA_NODISK;
+    if(!io)
+        return STA_NODISK;
 
-            if (!(io->features & FEATURE_MEDIUM_CANREAD))
-                return STA_NOINIT | STA_NODISK;
+    if (!(io->features & FEATURE_MEDIUM_CANREAD))
+        return STA_NOINIT | STA_NODISK;
 
-            if (!io->startup())
-                return STA_NOINIT;
+    if (!io->startup())
+        return STA_NOINIT;
 
-            if (!io->isInserted())
-                return STA_NODISK;
+    if (!io->isInserted())
+        return STA_NODISK;
 
-            fs_io[pdrv] = io;
-            fs_initialized[pdrv] = true;
+    fs_io[pdrv] = io;
+    fs_initialized[pdrv] = true;
 
-            return disk_status(pdrv);
-        }
-    }
-    return STA_NOINIT;
+    return disk_status(pdrv);
 }
 
 #define IS_WORD_ALIGNED(buff) (!(((uintptr_t) (buff)) & 0x03))
@@ -338,7 +335,7 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
         case DEV_NAND:
             if (cmd == GET_SECTOR_COUNT)
             {
-                *((LBA_t*) buff) = sdmmc_GetSectors();
+                *((LBA_t*) buff) = pdrv == DEV_SD ? sdmmc_GetSectors() : nand_GetSectors();
                 return RES_OK;
             }
 
