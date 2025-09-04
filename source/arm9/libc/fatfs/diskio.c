@@ -68,7 +68,7 @@ static const DISC_INTERFACE *fs_io[FF_VOLUMES];
 #error "This file assumes that the sector size is always the same".
 #endif
 
-static DISC_INTERFACE *get_disk_interface(BYTE pdrv)
+static const DISC_INTERFACE *get_disk_interface(BYTE pdrv)
 {
     const DISC_INTERFACE *io = NULL;
     switch (pdrv)

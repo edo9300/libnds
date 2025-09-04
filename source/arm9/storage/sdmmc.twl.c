@@ -70,11 +70,6 @@ bool sdmmc_Shutdown(void)
     return true;
 }
 
-u8 nand_GetDiskStatus(void)
-{
-    return sdmmc_fifo_value(SDMMC_NAND_STATUS);
-}
-
 u8 sdmmc_GetDiskStatus(void)
 {
     return sdmmc_fifo_value(SDMMC_SD_STATUS);

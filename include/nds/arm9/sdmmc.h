@@ -14,6 +14,7 @@ extern "C" {
 /// @brief SDMMC ARM9 module.
 
 #include <unistd.h>
+#include <nds/ndstypes.h>
 
 // These values should be synchronized with <fatfs/diskio.h>.
 #define SDMMC_STATUS_NOINIT     0x01 // Drive not initialized
@@ -112,6 +113,15 @@ bool nand_WriteSectors(sec_t sector, sec_t numSectors, const void *buffer);
 /// @return
 ///     Returns true on success or false on failure.
 bool nand_WriteSectorsCrypt(sec_t sector, sec_t numSectors, const void *buffer);
+
+/// Enables write protection for eMMC NAND.
+///
+/// @param[in] protect
+///     Wether write protection is enabled or not (defaults on).
+/// @note
+///     This protection state only affects nand writes performed through file i/o operations.
+///     Manually calling functions to write to the nand will still go through
+void nand_WriteProtect(bool protect);
 
 // Compatibility macros.
 #define nand_GetSize nand_GetSectors
