@@ -195,7 +195,7 @@ static void doCpuTransfer(Tmio *const regs, const u16 cmd, u8 *buf,
             {
                 if(callback_function)
                 {
-                    (*callback_function)(buf, fifo, blockLen, true);
+                    (*callback_function)((u32)fifo, buf, blockLen, true);
                     buf += blockLen;
                 }
                 else
@@ -240,7 +240,7 @@ static void doCpuTransfer(Tmio *const regs, const u16 cmd, u8 *buf,
             {
                 if(callback_function)
                 {
-                    (*callback_function)(fifo, buf, blockLen, false);
+                    (*callback_function)((u32)fifo, buf, blockLen, false);
                     buf += blockLen;
                 }
                 else
@@ -314,9 +314,7 @@ u32 TMIO_sendCommand(TmioPort *const port, const u16 cmd, const u32 arg)
     {
         // If we have to transfer data do so now.
         if (buf != NULL)
-        {
             doCpuTransfer(regs, cmd, buf, statusPtr, port->callback_function);
-        }
 
         // Wait for data end if needed.
         // On error data end still fires.

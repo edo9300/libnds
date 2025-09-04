@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Zlib
 //
 // Copyright (C) 2023 Antonio Niño Díaz
+// Copyright (C) 2025 Edoardo Lolletti (edo9300)
 
 #include <stddef.h>
 #include <string.h>
@@ -48,10 +49,10 @@ static sec_t setupAesRegs(u32 sectorNum, sec_t totalSectors)
     return  totalSectors - toReadSectors;
 }
 
-static void cryptSectorsRead(volatile void* dst, const volatile void* inSdmcFifo, u32 numBytes)
+static void cryptSectorsRead(u32 fifo, void* buffer, u32 numBytes)
 {
-    const bool word_aligned = !(((uintptr_t) dst) & 0x3);
-    vu32* inSdmcFifo32 = (vu32*)inSdmcFifo;
+    const bool word_aligned = !(((uintptr_t) buffer) & 0x3);
+    vu32* inSdmcFifo32 = (vu32*)fifo;
     if(word_aligned)
 #ifdef NDMA_CHANNEL
     {
@@ -63,7 +64,7 @@ static void cryptSectorsRead(volatile void* dst, const volatile void* inSdmcFifo
     }
 #else
     {
-        vu32* out32 = (vu32*)dst;
+        vu32* out32 = (vu32*)buffer;
         for (unsigned i = 0; i < numBytes / (4 * 16); ++i)
         {
             for (int j = 0; j < 16; ++j)
@@ -80,7 +81,7 @@ static void cryptSectorsRead(volatile void* dst, const volatile void* inSdmcFifo
 #endif
     else
     {
-        vu8* out8 = (vu8*)dst;
+        vu8* out8 = (vu8*)buffer;
         for (unsigned i = 0; i < numBytes / (4 * 16); ++i)
         {
             for (int j = 0; j < 16; ++j)
@@ -101,13 +102,13 @@ static void cryptSectorsRead(volatile void* dst, const volatile void* inSdmcFifo
 }
 
 
-static void cryptSectorsWrite(volatile void* outSdmcFifo, const volatile void* src, u32 numBytes)
+static void cryptSectorsWrite(u32 fifo, void* buffer, u32 numBytes)
 {
 #ifdef NDMA_CHANNEL
-    (void)outSdmcFifo;
-    if (!(((uintptr_t) src) & 0x3))
+    (void)fifo;
+    if (!(((uintptr_t) buffer) & 0x3))
     {
-        vu32* in32 = (vu32*)src;
+        vu32* in32 = (vu32*)buffer;
         for (unsigned i = 0; i < numBytes / 4; ++i)
         {
             while (((REG_AES_CNT) & 0x1F) == 16);
@@ -116,7 +117,7 @@ static void cryptSectorsWrite(volatile void* outSdmcFifo, const volatile void* s
     }
     else
     {
-        vu8* in8 = (vu8*)src;
+        vu8* in8 = (vu8*)buffer;
         for (unsigned i = 0; i < numBytes / 4; ++i)
         {
             u32 tmp = *in8++;
@@ -128,10 +129,10 @@ static void cryptSectorsWrite(volatile void* outSdmcFifo, const volatile void* s
         }
     }
 #else
-    vu32* outSdmcFifo32 = (vu32*)outSdmcFifo;
-    if (!(((uintptr_t) src) & 0x3))
+    vu32* outSdmcFifo32 = (vu32*)fifo;
+    if (!(((uintptr_t) buffer) & 0x3))
     {
-        vu32* in32 = (vu32*)src;
+        vu32* in32 = (vu32*)buffer;
         for (unsigned i = 0; i < numBytes / (4 * 16); ++i)
         {
             for (int j = 0; j < 16; ++j)
@@ -147,7 +148,7 @@ static void cryptSectorsWrite(volatile void* outSdmcFifo, const volatile void* s
     }
     else
     {
-        vu8* in8 = (vu8*)src;
+        vu8* in8 = (vu8*)buffer;
         for (unsigned i = 0; i < numBytes / (4 * 16); ++i)
         {
             for (int j = 0; j < 16; ++j)
@@ -168,12 +169,12 @@ static void cryptSectorsWrite(volatile void* outSdmcFifo, const volatile void* s
 #endif
 }
 
-static void sector_crypt_callback(volatile void* dst, const volatile void* src, u32 numBytes, bool read)
+static void sector_crypt_callback(u32 fifo, void* buffer, u32 numBytes, bool read)
 {
     if(read)
-        cryptSectorsRead(dst, src, numBytes);
+        cryptSectorsRead(fifo, buffer, numBytes);
     else
-        cryptSectorsWrite(dst, src, numBytes);
+        cryptSectorsWrite(fifo, buffer, numBytes);
     if(remainingSectors != 0)
     {
         u32 cnt = REG_AES_CNT;
@@ -184,10 +185,10 @@ static void sector_crypt_callback(volatile void* dst, const volatile void* src, 
 #ifdef NDMA_CHANNEL
             if(read)
             {
-                const bool word_aligned = !(((uintptr_t)dst) & 0x3);
+                const bool word_aligned = !(((uintptr_t)buffer) & 0x3);
                 if(!word_aligned)
                     return;
-                NDMA_DEST(NDMA_CHANNEL) = ((u32)dst) + 512;
+                NDMA_DEST(NDMA_CHANNEL) = ((u32)buffer) + 512;
             }
             NDMA_CR(NDMA_CHANNEL) |= NDMA_ENABLE;
 #endif
