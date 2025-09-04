@@ -204,6 +204,7 @@ extern "C" {
 #    include <nds/arm7/gpio.h>
 #    include <nds/arm7/i2c.h>
 #    include <nds/arm7/input.h>
+#    include <nds/arm7/nand_crypto.h>
 #    include <nds/arm7/sdmmc.h>
 #    include <nds/arm7/serial.h>
 #    include <nds/arm7/tmio.h>

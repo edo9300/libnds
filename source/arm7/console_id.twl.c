@@ -26,6 +26,8 @@ static void computeAes(void* out)
 // The key X from this keyslot, is populated with the console id at bytes 0-3 and 12-15
 static void computeConsoleIdFromNandKeyX(aes_keyslot_t* keyslot, u8 ConsoleIdOut[8])
 {
+    // "enable" the keyslot 3 for nand crypto, so that the keys are properly derived
+    ((vu32*)(AES_KEYSLOT3.key_y))[3] = 0xE1A00005;
     u8 canary[16]={0};
     computeAes(canary);
 
@@ -53,8 +55,6 @@ static void computeConsoleIdFromNandKeyX(aes_keyslot_t* keyslot, u8 ConsoleIdOut
 
 u64 getConsoleID(void)
 {
-    // always "enable" the keyslot 3 for nand crypto, so that the keys are properly derived
-    ((vu32*)(AES_KEYSLOT3.key_y))[3] = 0xE1A00005;
     // first check whether we can read the console ID directly and it was not hidden by SCFG
     if ((REG_SCFG_ROM & (1u << 10)) == 0 && ((*(vu8*)0x04004D08) & 0x1) == 0)
     {
