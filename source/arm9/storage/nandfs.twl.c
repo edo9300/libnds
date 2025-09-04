@@ -12,6 +12,21 @@
 
 static bool write_protect = true;
 
+static u32 sdmmc_fifo_value(uint32_t cmd)
+{
+    u32 result;
+
+    fifoMutexAcquire(FIFO_STORAGE);
+
+    fifoSendValue32(FIFO_STORAGE, cmd);
+    fifoWaitValue32Async(FIFO_STORAGE);
+    result = fifoGetValue32(FIFO_STORAGE);
+
+    fifoMutexRelease(FIFO_STORAGE);
+
+    return result;
+}
+
 void nand_WriteProtect(bool protect)
 {
     write_protect = protect;
