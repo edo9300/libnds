@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: Zlib
+//
+// Copyright (C) 2025 Edoardo Lolletti (edo9300)
 
 #ifndef LIBNDS_NDS_ARM7_NAND_CRYPTO_H__
 #define LIBNDS_NDS_ARM7_NAND_CRYPTO_H__

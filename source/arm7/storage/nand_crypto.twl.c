@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Zlib
+//
+// Copyright (C) 2025 Edoardo Lolletti (edo9300)
+
 #include <stdbool.h>
 #include <string.h>
 
