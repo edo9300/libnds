@@ -41,14 +41,6 @@ void nandCrypt_Init(void)
         return;
 
     generate_key(&AES_KEYSLOT3, getConsoleID());
-    REG_AES_CNT = ( AES_CNT_MODE(2) |
-                    AES_WRFIFO_FLUSH |
-                    AES_RDFIFO_FLUSH |
-                    AES_CNT_KEY_APPLY |
-                    AES_CNT_KEYSLOT(3) |
-                    AES_CNT_DMA_WRITE_SIZE(0) |
-                    AES_CNT_DMA_READ_SIZE(3)
-                    );
 
     // Calculate the Input Vector used for NAND decryption
     // First 16 bytes of the SHA of the nand cid will be used

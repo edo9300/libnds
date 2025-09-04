@@ -36,7 +36,6 @@ static sec_t setupAesRegs(u32 sectorNum, sec_t totalSectors)
         toReadSectors = SECTOR_CAP;
     }
     u32 aesBlockCount = toReadSectors * (SECTOR_SIZE / AES_BLOCK_SIZE);
-    // FIXME: handle transfers greater than 0xFFFF blocks (0xFFFF0 bytes, which translate to 2047 sectors)
     REG_AES_BLKCNT = (aesBlockCount << 16);
 
     u32 offset = sectorNum * (SECTOR_SIZE / AES_BLOCK_SIZE);
