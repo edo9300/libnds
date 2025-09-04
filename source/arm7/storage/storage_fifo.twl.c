@@ -10,7 +10,6 @@
 #include <nds/fifocommon.h>
 #include <nds/fifomessages.h>
 #include <string.h>
-#include <nds/debug.h>
 #include <stdio.h>
 
 #define NDMA_CHANNEL 1
@@ -30,7 +29,7 @@ static void generate_key(aes_keyslot_t* keyslot, u64 console_id)
     key_x[0] = lower;
     // this bit is only set on 3ds consoles
     const bool is3ds = (lower & 0x80000000) != 0;
-    if(lower & 0x80000000)
+    if(is3ds)
     {
         static const char NINTENDO[] = {'N','I','N','T','E','N','D','O'};
         key_x[1] = ((vu32*)NINTENDO)[0];
@@ -89,7 +88,6 @@ static void u128_add32(const u8 *a, u32 b, vu8 *dest)
 #define AES_BLOCK_SIZE          16
 static sec_t setupAesRegs(u32 sectorNum, sec_t totalSectors)
 {
-    char buff[120];
     REG_AES_CNT = ( AES_CNT_MODE(2) |
                     AES_WRFIFO_FLUSH |
                     AES_RDFIFO_FLUSH |
@@ -268,9 +266,6 @@ void aaa(volatile void* dst, const volatile void* src, u32 numBytes, bool read)
 
 static u32 sdmmcReadSectors(const u8 devNum, u32 sect, u8 *buf, u32 count, bool crypt)
 {
-    char buff[120];
-    sprintf(buff, "ARM7: reading %d sectors starting from: %d\n", count, sect);
-    // nocashMessage(buff);
     u32 result;
     const bool word_aligned = !(((uintptr_t) buf) & 0x3);
     if(crypt)
@@ -319,9 +314,6 @@ static u32 sdmmcReadSectors(const u8 devNum, u32 sect, u8 *buf, u32 count, bool 
 
 static u32 sdmmcWriteSectors(const u8 devNum, u32 sect, const u8 *buf, u32 count, bool crypt)
 {
-    char buff[120];
-    sprintf(buff, "ARM7: writing %d sectors starting from: %d\n", count, sect);
-    nocashMessage(buff);
     u32 result;
     if(crypt)
     {
