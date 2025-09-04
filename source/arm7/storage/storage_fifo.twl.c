@@ -409,10 +409,14 @@ int sdmmcValueHandler(u32 value, void *user_data)
 
         case SDMMC_SD_START:
             result = SDMMC_init(SDMMC_DEV_CARD);
+            if (result == SDMMC_ERR_INITIALIZED)
+                result = SDMMC_ERR_NONE;
             break;
 
         case SDMMC_NAND_START:
             result = SDMMC_init(SDMMC_DEV_eMMC);
+            if (result == SDMMC_ERR_INITIALIZED)
+                result = SDMMC_ERR_NONE;
             break;
 
         case SDMMC_SD_STOP:
