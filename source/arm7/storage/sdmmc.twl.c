@@ -709,12 +709,10 @@ static u32 updateStatus(SdmmcDev *const dev, const bool stopTransmission)
     return res;
 }
 
-extern void aaa(volatile void* dst, const volatile void* src, u32 blocklen, bool read);
-
 // Note: On multi-block read from the last 2 sectors there are no errors reported by the controller
 //       however the R1 card status may report ADDRESS_OUT_OF_RANGE on next(?) status read.
 //       This error is normal for (e)MMC and can be ignored.
-static u32 readSectors(const u8 devNum, u32 sect, void *const buf, const u16 count, tmio_callback_t callback)
+u32 SDMMC_readSectorsCrypt(const u8 devNum, u32 sect, void *const buf, const u16 count, tmio_callback_t crypt_callback)
 {
     if (devNum > SDMMC_MAX_DEV_NUM || count == 0)
         return SDMMC_ERR_INVAL_PARAM;
@@ -727,7 +725,7 @@ static u32 readSectors(const u8 devNum, u32 sect, void *const buf, const u16 cou
 
     // Set destination buffer and sector count.
     TmioPort *const port = &dev->port;
-    TMIO_setBuffer(port, buf, count, callback);
+    TMIO_setBuffer(port, buf, count, crypt_callback);
 
     // Read a single 512 bytes block. Same CMD for (e)MMC/SD.
     // Read multiple 512 bytes blocks. Same CMD for (e)MMC/SD.
@@ -750,20 +748,10 @@ static u32 readSectors(const u8 devNum, u32 sect, void *const buf, const u16 cou
     return SDMMC_ERR_NONE;
 }
 
-u32 SDMMC_readSectors(const u8 devNum, u32 sect, void *const buf, const u16 count)
-{
-    return readSectors(devNum, sect, buf, count, NULL);
-}
-
-u32 SDMMC_readSectorsCrypt(const u8 devNum, u32 sect, void *const buf, const u16 count)
-{
-    return readSectors(devNum, sect, buf, count, aaa);
-}
-
 // Note: On multi-block write to the last 2 sectors there are no errors reported by the controller
 //       however the R1 card status may report ADDRESS_OUT_OF_RANGE on next(?) status read.
 //       This error is normal for (e)MMC and can be ignored.
-static u32 writeSectors(const u8 devNum, u32 sect, const void *const buf, const u16 count, tmio_callback_t callback)
+u32 SDMMC_writeSectorsCrypt(const u8 devNum, u32 sect, const void *const buf, const u16 count, tmio_callback_t crypt_callback)
 {
     if (devNum > SDMMC_MAX_DEV_NUM || count == 0)
         return SDMMC_ERR_INVAL_PARAM;
@@ -780,7 +768,7 @@ static u32 writeSectors(const u8 devNum, u32 sect, const void *const buf, const 
 
     // Set source buffer and sector count.
     TmioPort *const port = &dev->port;
-    TMIO_setBuffer(port, (void *)buf, count, callback);
+    TMIO_setBuffer(port, (void *)buf, count, crypt_callback);
 
     // Write a single 512 bytes block. Same CMD for (e)MMC/SD.
     // Write multiple 512 bytes blocks. Same CMD for (e)MMC/SD.
@@ -801,16 +789,6 @@ static u32 writeSectors(const u8 devNum, u32 sect, const void *const buf, const 
     }
 
     return SDMMC_ERR_NONE;
-}
-
-u32 SDMMC_writeSectors(const u8 devNum, u32 sect, const void *const buf, const u16 count)
-{
-    return writeSectors(devNum, sect, buf, count, NULL);
-}
-
-u32 SDMMC_writeSectorsCrypt(const u8 devNum, u32 sect, const void *const buf, const u16 count)
-{
-    return writeSectors(devNum, sect, buf, count, aaa);
 }
 
 u32 SDMMC_sendCommand(const u8 devNum, MmcCommand *const mmcCmd)

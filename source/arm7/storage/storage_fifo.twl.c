@@ -18,7 +18,7 @@
 static sec_t remainingSectors;
 static sec_t startingSector;
 
-#define SECTOR_SIZE              0x200
+#define SECTOR_SIZE             0x200
 #define AES_BLOCK_SIZE          16
 static sec_t setupAesRegs(u32 sectorNum, sec_t totalSectors)
 {
@@ -47,8 +47,6 @@ static sec_t setupAesRegs(u32 sectorNum, sec_t totalSectors)
 
     return  totalSectors - toReadSectors;
 }
-
-extern void aaa(volatile void* dst, const volatile void* src, u32 numBytes, bool read);
 
 static void cryptSectorsRead(volatile void* dst, const volatile void* inSdmcFifo, u32 numBytes)
 {
@@ -170,7 +168,7 @@ static void cryptSectorsWrite(volatile void* outSdmcFifo, const volatile void* s
 #endif
 }
 
-void aaa(volatile void* dst, const volatile void* src, u32 numBytes, bool read)
+static void sector_crypt_callback(volatile void* dst, const volatile void* src, u32 numBytes, bool read)
 {
     if(read)
         cryptSectorsRead(dst, src, numBytes);
@@ -216,7 +214,7 @@ static u32 sdmmcReadSectors(const u8 devNum, u32 sect, u8 *buf, u32 count, bool 
 #endif
         startingSector = sect;
         remainingSectors = setupAesRegs(sect, count);
-        result = SDMMC_readSectorsCrypt(devNum, sect, buf, count);
+        result = SDMMC_readSectorsCrypt(devNum, sect, buf, count, sector_crypt_callback);
 #ifdef NDMA_CHANNEL
         if(word_aligned)
         {
@@ -260,7 +258,7 @@ static u32 sdmmcWriteSectors(const u8 devNum, u32 sect, const u8 *buf, u32 count
 #endif
         startingSector = sect;
         remainingSectors = setupAesRegs(sect, count);
-        result = SDMMC_writeSectorsCrypt(devNum, sect, buf, count);
+        result = SDMMC_writeSectorsCrypt(devNum, sect, buf, count, sector_crypt_callback);
 #ifdef NDMA_CHANNEL
         NDMA_CR(NDMA_CHANNEL) = 0;
 #endif
